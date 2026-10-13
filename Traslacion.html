@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratorio de Transformaciones Isométricas: Traslación</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); cursor: crosshair; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between p-4">
+
+    <!-- Encabezado -->
+    <header class="w-full max-w-4xl text-center mb-4">
+        <h1 class="text-3xl font-bold text-indigo-700">Laboratorio de Traslaciones Geométricas</h1>
+        <p class="text-gray-600">Arrastra la figura original desde su posición inicial. Al soltarla, se duplicará manteniendo el color original y dejando una copia en el destino.</p>
+    </header>
+
+    <!-- Panel de Control y Estadísticas -->
+    <div class="w-full max-w-4xl flex flex-wrap justify-between items-center bg-white p-4 rounded-xl shadow-md mb-4">
+        <div class="flex items-center space-x-4">
+            <span class="px-3 py-1 bg-indigo-100 text-indigo-800 font-semibold rounded-lg">Nivel: <span id="level-display">1</span></span>
+            <span class="px-3 py-1 bg-green-100 text-green-800 font-semibold rounded-lg">Traslaciones: <span id="count-display">0</span> / 8</span>
+        </div>
+        <div class="flex space-x-2 mt-2 sm:mt-0">
+            <button onclick="resetLevel()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-lg transition">Reiniciar Nivel</button>
+            <button onclick="downloadImage()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition shadow">Descargar JPEG</button>
+        </div>
+    </div>
+
+    <!-- Área del Plano (Canvas) -->
+    <div class="relative flex justify-center items-center">
+        <canvas id="simCanvas" width="800" height="500" class="rounded-xl border border-gray-300"></canvas>
+    </div>
+
+    <!-- Instrucciones de uso -->
+    <footer class="w-full max-w-4xl text-center mt-4 text-sm text-gray-500">
+        <p>Aplicación diseñada para la enseñanza de matemáticas y geometría interactiva.</p>
+    </footer>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const BLOCK_SIZE = 25;
+
+        // Definición de piezas de Tetris (Matrices)
+        const tetrisPieces = [
+            { name: 'I', shape: [[1,1,1,1]], color: '#00f0f0' },
+            { name: 'O', shape: [[1,1],[1,1]], color: '#f0f000' },
+            { name: 'T', shape: [[0,1,0],[1,1,1]], color: '#a000f0' },
+            { name: 'S', shape: [[0,1,1],[1,1,0]], color: '#00f000' },
+            { name: 'Z', shape: [[1,1,0],[0,1,1]], color: '#f00000' },
+            { name: 'J', shape: [[1,0,0],[1,1,1]], color: '#0000f0' },
+            { name: 'L', shape: [[0,0,1],[1,1,1]], color: '#f0a000' }
+        ];
+
+        let currentLevel = 1;
+        let translationCount = 0;
+        let currentPiece = null;
+        
+        // Posición original fija de la pieza base
+        let originalPos = { x: 50, y: 200 };
+        
+        // Lista de piezas duplicadas trasladadas
+        let translatedCopies = [];
+
+        // Estado de arrastre
+        let isDragging = false;
+        let dragOffset = { x: 0, y: 0 };
+        let currentDragPos = { x: 0, y: 0 };
+
+        function initLevel() {
+            // Seleccionar pieza aleatoria según el nivel
+            const pieceIndex = (currentLevel - 1) % tetrisPieces.length;
+            currentPiece = tetrisPieces[pieceIndex];
+            translatedCopies = [];
+            translationCount = 0;
+            updateUI();
+            draw();
+        }
+
+        function updateUI() {
+            document.getElementById('level-display').innerText = currentLevel;
+            document.getElementById('count-display').innerText = translationCount;
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = '#f0f0f0';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += BLOCK_SIZE) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += BLOCK_SIZE) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            // Ejes centrales sutiles
+            ctx.strokeStyle = '#e5e7eb';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+        }
+
+        function drawPiece(matrix, startX, startY, color, isOriginal = false) {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+
+            matrix.forEach((row, rIdx) => {
+                row.forEach((val, cIdx) => {
+                    if (val === 1) {
+                        const x = startX + cIdx * BLOCK_SIZE;
+                        const y = startY + rIdx * BLOCK_SIZE;
+                        ctx.fillRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
+                        ctx.strokeRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
+                    }
+                });
+            });
+
+            // Etiqueta identificadora
+            if (isOriginal) {
+                ctx.fillStyle = '#1f2937';
+                ctx.font = '12px sans-serif';
+                ctx.fillText("Original", startX, startY - 5);
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+
+            // Dibujar copias trasladadas (Color secundario: Coral/Naranja claro para diferenciar)
+            translatedCopies.forEach(copy => {
+                drawPiece(currentPiece.shape, copy.x, copy.y, '#fb923c', false);
+            });
+
+            // Dibujar la pieza original fija
+            drawPiece(currentPiece.shape, originalPos.x, originalPos.y, currentPiece.color, true);
+
+            // Si se está arrastrando, dibujar la vista previa flotante
+            if (isDragging) {
+                drawPiece(currentPiece.shape, currentDragPos.x, currentDragPos.y, '#fb923c', false);
+            }
+        }
+
+        // Comprobar si el clic está dentro del área de la pieza original
+        function isInsideOriginal(mouseX, mouseY) {
+            const matrix = currentPiece.shape;
+            const width = matrix[0].length * BLOCK_SIZE;
+            const height = matrix.length * BLOCK_SIZE;
+            return (
+                mouseX >= originalPos.x &&
+                mouseX <= originalPos.x + width &&
+                mouseY >= originalPos.y &&
+                mouseY <= originalPos.y + height
+            );
+        }
+
+        // Eventos del Mouse
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (isInsideOriginal(mouseX, mouseY)) {
+                isDragging = true;
+                dragOffset.x = mouseX - originalPos.x;
+                dragOffset.y = mouseY - originalPos.y;
+                currentDragPos.x = originalPos.x;
+                currentDragPos.y = originalPos.y;
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            currentDragPos.x = mouseX - dragOffset.x;
+            currentDragPos.y = mouseY - dragOffset.y;
+            draw();
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const finalX = mouseX - dragOffset.x;
+            const finalY = mouseY - dragOffset.y;
+
+            // Guardar copia trasladada si se movió del lugar original
+            if (Math.abs(finalX - originalPos.x) > 10 || Math.abs(finalY - originalPos.y) > 10) {
+                translatedCopies.push({ x: finalX, y: finalY });
+                translationCount++;
+                updateUI();
+
+                if (translationCount >= 8) {
+                    setTimeout(() => {
+                        alert(`¡Excelente trabajo! Has completado las 8 traslaciones del Nivel ${currentLevel}. Pasando al siguiente nivel.`);
+                        currentLevel++;
+                        initLevel();
+                    }, 200);
+                }
+            }
+            draw();
+        });
+
+        function resetLevel() {
+            translatedCopies = [];
+            translationCount = 0;
+            updateUI();
+            draw();
+        }
+
+        function downloadImage() {
+            const link = document.createElement('a');
+            link.download = `traslaciones_nivel_${currentLevel}.jpg`;
+            link.href = canvas.toDataURL('image/jpeg', 0.9);
+            link.click();
+        }
+
+        // Inicializar aplicación al cargar
+        initLevel();
+    </script>
+</body>
+</html>
